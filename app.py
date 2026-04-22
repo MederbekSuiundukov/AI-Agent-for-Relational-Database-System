@@ -279,32 +279,15 @@ def get_engine():
 
 @st.cache_resource(show_spinner=False)
 def get_langchain_db(_engine):
-    """
-    Dynamically discover all tables/views in the connected DB
-    and only pass ones that actually exist to LangChain.
-    This prevents the 'include_tables not found' ValueError.
-    """
     with _engine.connect() as conn:
         rows = conn.execute(text("SHOW TABLES")).fetchall()
-        actual = {r[0] for r in rows}
-
-    desired = [
-        "customers", "sellers", "products", "orders",
-        "order_items", "order_reviews", "payments",
-        "vw_sales_by_category", "vw_customer_order_history",
-    ]
-    available = [t for t in desired if t in actual]
-
-    if not available:
-        # Fallback: expose everything in the DB
-        available = list(actual) if actual else None
+        actual = [r[0] for r in rows]
 
     return SQLDatabase(
         engine=_engine,
         sample_rows_in_table_info=3,
-        include_tables=available,
-    ), actual
-
+        include_tables=actual,   # pass the real list directly — no filtering
+    ), set(actual)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  LLM + AGENT
