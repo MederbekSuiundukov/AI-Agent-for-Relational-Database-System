@@ -230,17 +230,24 @@ def get_engine():
 
 @st.cache_resource(show_spinner=False)
 def get_langchain_db(_engine):
-    """Wrap SQLAlchemy engine in a LangChain SQLDatabase object."""
+    # Dynamically discover what tables actually exist
+    with _engine.connect() as conn:
+        rows = conn.execute(text("SHOW TABLES")).fetchall()
+        actual_tables = [r[0] for r in rows]
+
+    # Only include tables that exist in this database
+    desired = [
+        "customers", "sellers", "products", "orders",
+        "order_items", "order_reviews", "payments",
+        "vw_sales_by_category", "vw_customer_order_history",
+    ]
+    available = [t for t in desired if t in actual_tables]
+
     return SQLDatabase(
         engine=_engine,
         sample_rows_in_table_info=3,
-        include_tables=[
-            "customers", "sellers", "products",
-            "orders", "order_items", "order_reviews",
-            "payments",
-        ],
+        include_tables=available if available else None,
     )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  LLM + AGENT  (cached per session)
