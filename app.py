@@ -44,7 +44,7 @@ section[data-testid="stSidebar"] *{color:var(--text)!important;}
 .hero-title span{color:var(--text);opacity:0.25;}
 .hero-sub{font-size:0.8rem;color:var(--muted);margin-top:0.4rem;letter-spacing:0.12em;text-transform:uppercase;font-weight:500;}
 .chip-row{display:flex;gap:0.5rem;flex-wrap:wrap;margin:1rem 0 1.5rem 0;}
-.chip{display:inline-flex;align-items:center;gap:0.35rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:var(--mono);color:var(--muted);font-weight:500;}
+.chip{display:inline-flex;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:var(--mono);color:var(--muted);font-weight:500;}
 .chip.ok{border-color:var(--success);color:var(--success);}
 .chip.warn{border-color:#f87171;color:#f87171;}
 .chip.info{border-color:var(--accent);color:var(--accent);}
@@ -83,7 +83,7 @@ def get_secret(key: str, default: str = "") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ENGINE  — cached once per session (just the connection pool)
+#  ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_resource(show_spinner=False)
@@ -106,43 +106,31 @@ def get_engine():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  LANGCHAIN DB + AGENT  — NOT cached, built fresh each invocation
-#  This is intentional: avoids stale include_tables lists from cache
+#  AGENT BUILDER
+#  KEY FIX: only the 7 base TABLES go into include_tables.
+#  Views are NOT passed to LangChain (TiDB Serverless hides them from
+#  SQLAlchemy's reflect/inspect). The agent learns about views via the
+#  system prompt and can query them directly by name.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+BASE_TABLES = [
+    "customers", "sellers", "products", "orders",
+    "order_items", "order_reviews", "payments",
+]
+
 def build_agent(engine):
-    """
-    Build a fresh LangChain SQL agent every call.
-    NO @st.cache_resource here — that was causing stale table lists.
-    """
     xai_api_key = get_secret("XAI_API_KEY", "")
     if not xai_api_key:
         st.error("❌ XAI_API_KEY not set.")
         st.stop()
 
-    # 1. Discover exactly what tables exist RIGHT NOW
-    with engine.connect() as conn:
-        rows   = conn.execute(text("SHOW TABLES")).fetchall()
-        actual = [r[0] for r in rows]
-
-    # 2. Build LangChain DB with only the tables that exist
-    #    — never pass a name that isn't in actual
-    KNOWN = [
-        "customers", "sellers", "products", "orders",
-        "order_items", "order_reviews", "payments",
-        "vw_sales_by_category", "vw_customer_order_history",
-    ]
-    use_tables = [t for t in KNOWN if t in actual]
-    if not use_tables:
-        use_tables = actual  # fallback: expose everything
-
+    # Only pass the 7 real tables — never the views
     db = SQLDatabase(
         engine=engine,
         sample_rows_in_table_info=2,
-        include_tables=use_tables,
+        include_tables=BASE_TABLES,
     )
 
-    # 3. Build LLM
     llm = ChatOpenAI(
         model="grok-3-mini",
         api_key=xai_api_key,
@@ -151,35 +139,41 @@ def build_agent(engine):
         max_tokens=2048,
     )
 
-    # 4. Build agent
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
 
-    system_message = f"""You are an expert SQL analyst for a Brazilian e-commerce business.
+    system_message = """You are an expert SQL analyst for a Brazilian e-commerce business.
 Database: Olist Brazilian E-Commerce (MySQL on TiDB Serverless)
-Available tables/views: {', '.join(use_tables)}
 
-TABLES:
-  • customers        — customer_id, customer_unique_id, city, state, zip_code
-  • sellers          — seller_id, city, state, zip_code
-  • products         — product_id, category, weight_g, dimensions, photos_qty
-  • orders           — order_id, customer_id, order_status, order_purchase_timestamp, delivery dates
-  • order_items      — order_id, order_item_id, product_id, seller_id, price, freight_value
-  • order_reviews    — review_id, order_id, review_score (1-5), review_comment_message
-  • payments         — order_id, payment_type, payment_installments, payment_value
+BASE TABLES (schema available via tools):
+  • customers     — customer_id, customer_unique_id, city, state, zip_code
+  • sellers       — seller_id, city, state, zip_code
+  • products      — product_id, category, weight_g, length_cm, height_cm, width_cm, photos_qty
+  • orders        — order_id, customer_id, order_status, order_purchase_timestamp,
+                    order_approved_at, order_delivered_customer_date, order_estimated_delivery_date
+  • order_items   — order_id, order_item_id, product_id, seller_id, price, freight_value
+  • order_reviews — review_id, order_id, review_score (1-5), review_comment_message
+  • payments      — order_id, payment_type, payment_installments, payment_value
 
-VIEWS (use for aggregations — faster):
-  • vw_sales_by_category      — category, total_orders, total_items_sold, total_revenue,
-                                avg_item_price, total_freight, avg_review_score, unique_sellers
-  • vw_customer_order_history — customer_unique_id, order_id, order_status,
-                                product_category, price, payment_type, review_score
+VIEWS (query these directly by name — they exist in the DB):
+  • vw_sales_by_category
+      Columns: category, total_orders, total_items_sold, total_revenue,
+               avg_item_price, total_freight, avg_review_score, unique_sellers
+      Use for: any question about revenue, sales, or reviews BY CATEGORY
+
+  • vw_customer_order_history
+      Columns: customer_unique_id, order_id, order_status, order_purchase_timestamp,
+               order_delivered_customer_date, product_category, price, freight_value,
+               payment_type, payment_value, review_score
+      Use for: customer history lookups
 
 RULES:
 1. Write syntactically correct MySQL SQL only.
-2. Use vw_sales_by_category for category revenue/review questions.
-3. Use vw_customer_order_history for customer history questions.
-4. Always LIMIT 200 unless user requests otherwise.
-5. After retrieving data, give a clear concise business interpretation.
-6. Never expose credentials or connection strings.
+2. For category-level questions use: SELECT * FROM vw_sales_by_category ...
+3. For customer history use: SELECT * FROM vw_customer_order_history WHERE customer_unique_id = '...'
+4. For other questions query the base tables directly.
+5. Always LIMIT 200 unless the user asks for more.
+6. After retrieving data give a clear concise business interpretation.
+7. Never expose credentials or connection strings.
 """
 
     return create_sql_agent(
@@ -191,7 +185,7 @@ RULES:
         max_execution_time=60,
         handle_parsing_errors=True,
         system_message=system_message,
-    ), use_tables
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -288,13 +282,10 @@ try:
 except Exception as e:
     db_error = str(e)
 
-xai_ok = bool(get_secret("XAI_API_KEY"))
-
-found_core  = len([t for t in actual_tbls if t in
-                   {"customers","sellers","products","orders",
-                    "order_items","order_reviews","payments"}])
+xai_ok      = bool(get_secret("XAI_API_KEY"))
+found_core  = len([t for t in actual_tbls if t in set(BASE_TABLES)])
 found_views = len([t for t in actual_tbls if t in
-                   {"vw_sales_by_category","vw_customer_order_history"}])
+                   {"vw_sales_by_category", "vw_customer_order_history"}])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -326,7 +317,6 @@ with st.sidebar:
     for q in SAMPLES:
         if st.button(q, key=f"sq_{q[:28]}"):
             st.session_state.pending_question = q
-
     st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
     show_sql   = st.toggle("Show generated SQL",  value=True)
     show_table = st.toggle("Show result table",    value=True)
@@ -362,10 +352,7 @@ xai_chip = (
     '<span class="chip ok">✅ XAI key set</span>' if xai_ok
     else '<span class="chip warn">❌ XAI key missing</span>'
 )
-schema_chip = (
-    f'<span class="chip info">📋 {found_core} tables + {found_views} views ready</span>'
-    if engine else ""
-)
+schema_chip = f'<span class="chip info">📋 {found_core} tables + {found_views} views</span>'
 
 st.markdown(
     f'<div class="chip-row">{db_chip}{xai_chip}{schema_chip}</div>',
@@ -378,12 +365,6 @@ if db_error:
 if not xai_ok:
     st.error("XAI_API_KEY missing. Add it in Streamlit Cloud → Settings → Secrets.")
     st.stop()
-if found_core < 7:
-    st.warning(
-        f"⚠️ Only {found_core}/7 base tables found. "
-        f"Tables present: `{'`, `'.join(actual_tbls) or 'none'}`\n\n"
-        "Make sure `TIDB_DB = 'ecommerce'` in Streamlit Cloud Secrets, then **Reboot app**."
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -450,9 +431,7 @@ if user_question:
 
     with st.spinner("⚡ Thinking …"):
         try:
-            # Build fresh agent every time — no caching = no stale table lists
-            agent, used_tables = build_agent(engine)
-
+            agent     = build_agent(engine)
             response  = agent.invoke({"input": user_question})
             answer    = response.get("output", str(response))
             sql_query = extract_last_select(response.get("intermediate_steps", []))
