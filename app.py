@@ -1,6 +1,14 @@
 """
 app.py — Text-to-SQL AI Agent
-Streamlit UI · LangChain SQL Agent · Grok (xAI) · TiDB Serverless
+Streamlit UI · LangChain SQL Agent · Groq (llama-3.3-70b) · TiDB Serverless
+
+Secrets needed in Streamlit Cloud → Settings → Secrets:
+    TIDB_HOST     = "gateway01.eu-central-1.prod.aws.tidbcloud.com"
+    TIDB_PORT     = "4000"
+    TIDB_USER     = "your_prefix.root"
+    TIDB_PASSWORD = "your_password"
+    TIDB_DB       = "ecommerce"
+    GROQ_API_KEY  = "gsk_..."
 """
 
 import os
@@ -24,7 +32,7 @@ st.set_page_config(
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CSS
+#  CSS — amber + slate dark theme
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -36,31 +44,67 @@ st.markdown("""
     --success:#34d399; --mono:'IBM Plex Mono',monospace; --sans:'Inter',sans-serif;
 }
 *{box-sizing:border-box;}
-html,body,[class*="css"],.stApp{background-color:var(--bg)!important;color:var(--text)!important;font-family:var(--sans)!important;}
-section[data-testid="stSidebar"]>div{background:var(--surface)!important;border-right:1px solid var(--border)!important;padding-top:1.5rem;}
+html,body,[class*="css"],.stApp{
+    background-color:var(--bg)!important;
+    color:var(--text)!important;
+    font-family:var(--sans)!important;
+}
+section[data-testid="stSidebar"]>div{
+    background:var(--surface)!important;
+    border-right:1px solid var(--border)!important;
+    padding-top:1.5rem;
+}
 section[data-testid="stSidebar"] *{color:var(--text)!important;}
+
+/* Hero */
 .hero-wrap{padding:2rem 0 1.2rem 0;border-bottom:1px solid var(--border);margin-bottom:1.5rem;}
 .hero-title{font-family:var(--mono);font-size:2.6rem;font-weight:600;color:var(--accent);letter-spacing:-0.04em;line-height:1;margin:0;}
 .hero-title span{color:var(--text);opacity:0.25;}
 .hero-sub{font-size:0.8rem;color:var(--muted);margin-top:0.4rem;letter-spacing:0.12em;text-transform:uppercase;font-weight:500;}
+
+/* Chips */
 .chip-row{display:flex;gap:0.5rem;flex-wrap:wrap;margin:1rem 0 1.5rem 0;}
 .chip{display:inline-flex;align-items:center;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:0.3rem 0.75rem;font-size:0.75rem;font-family:var(--mono);color:var(--muted);font-weight:500;}
-.chip.ok{border-color:var(--success);color:var(--success);}
+.chip.ok  {border-color:var(--success);color:var(--success);}
 .chip.warn{border-color:#f87171;color:#f87171;}
 .chip.info{border-color:var(--accent);color:var(--accent);}
+
+/* Messages */
 .msg-wrap{margin-bottom:1rem;}
-.msg-user{background:var(--surface2);border:1px solid var(--border);border-radius:12px 12px 4px 12px;padding:0.9rem 1.1rem;margin-left:15%;font-size:0.93rem;line-height:1.65;}
-.msg-bot{background:#130e05;border:1px solid var(--accentdim);border-radius:12px 12px 12px 4px;padding:0.9rem 1.1rem;margin-right:5%;font-size:0.93rem;line-height:1.65;}
+.msg-user{
+    background:var(--surface2);border:1px solid var(--border);
+    border-radius:12px 12px 4px 12px;padding:0.9rem 1.1rem;
+    margin-left:15%;font-size:0.93rem;line-height:1.65;
+}
+.msg-bot{
+    background:#130e05;border:1px solid var(--accentdim);
+    border-radius:12px 12px 12px 4px;padding:0.9rem 1.1rem;
+    margin-right:5%;font-size:0.93rem;line-height:1.65;
+}
 .msg-label{font-family:var(--mono);font-size:0.62rem;font-weight:600;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:0.4rem;opacity:0.45;}
 .msg-user .msg-label{text-align:right;}
+
+/* SQL block */
 .sql-wrap{margin:0.6rem 0 1rem 0;border-radius:8px;overflow:hidden;border:1px solid var(--border);}
 .sql-header{background:var(--surface2);padding:0.3rem 0.8rem;font-family:var(--mono);font-size:0.65rem;color:var(--accent);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;border-bottom:1px solid var(--border);}
 .sql-body{background:#060608;padding:0.8rem 1rem;font-family:var(--mono);font-size:0.78rem;color:var(--blue);white-space:pre-wrap;overflow-x:auto;margin:0;}
-.stButton>button{background:transparent!important;border:1px solid var(--border)!important;color:var(--muted)!important;font-family:var(--sans)!important;font-size:0.78rem!important;border-radius:8px!important;padding:0.45rem 0.75rem!important;text-align:left!important;width:100%!important;transition:all 0.15s ease!important;line-height:1.4!important;}
+
+/* Buttons */
+.stButton>button{
+    background:transparent!important;border:1px solid var(--border)!important;
+    color:var(--muted)!important;font-family:var(--sans)!important;
+    font-size:0.78rem!important;border-radius:8px!important;
+    padding:0.45rem 0.75rem!important;text-align:left!important;
+    width:100%!important;transition:all 0.15s ease!important;line-height:1.4!important;
+}
 .stButton>button:hover{border-color:var(--accent)!important;color:var(--accent)!important;background:#130e05!important;}
+
+/* Chat input */
 div[data-testid="stChatInput"]{background:var(--surface)!important;border:1px solid var(--border)!important;border-radius:12px!important;}
 div[data-testid="stChatInput"] textarea{background:transparent!important;color:var(--text)!important;font-family:var(--sans)!important;font-size:0.93rem!important;}
 div[data-testid="stChatInput"]:focus-within{border-color:var(--accent)!important;}
+
+/* Misc */
 .stSpinner>div{border-top-color:var(--accent)!important;}
 .sdiv{height:1px;background:var(--border);margin:0.9rem 0;}
 .sb-logo{font-family:var(--mono);font-size:1.1rem;font-weight:600;color:var(--accent);margin-bottom:0.15rem;}
@@ -72,7 +116,7 @@ div[data-testid="stChatInput"]:focus-within{border-color:var(--accent)!important
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SECRETS
+#  SECRETS HELPER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_secret(key: str, default: str = "") -> str:
@@ -83,7 +127,7 @@ def get_secret(key: str, default: str = "") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  ENGINE
+#  DATABASE ENGINE  (cached — one pool per session)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_resource(show_spinner=False)
@@ -106,11 +150,10 @@ def get_engine():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  AGENT BUILDER
-#  KEY FIX: only the 7 base TABLES go into include_tables.
-#  Views are NOT passed to LangChain (TiDB Serverless hides them from
-#  SQLAlchemy's reflect/inspect). The agent learns about views via the
-#  system prompt and can query them directly by name.
+#  BASE TABLES — only real tables, NEVER views
+#  TiDB Serverless hides views from SQLAlchemy's reflect/inspect,
+#  so passing view names to include_tables raises ValueError.
+#  The agent learns about views via the system prompt instead.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 BASE_TABLES = [
@@ -118,23 +161,29 @@ BASE_TABLES = [
     "order_items", "order_reviews", "payments",
 ]
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  AGENT BUILDER  (no cache — built fresh per query to avoid stale state)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 def build_agent(engine):
-    xai_api_key = get_secret("XAI_API_KEY", "")
-    if not xai_api_key:
-        st.error("❌ XAI_API_KEY not set.")
+    groq_api_key = get_secret("GROQ_API_KEY", "")
+    if not groq_api_key:
+        st.error("❌ GROQ_API_KEY not set. Add it in Streamlit Cloud → Settings → Secrets.")
         st.stop()
 
-    # Only pass the 7 real tables — never the views
+    # LangChain SQLDatabase — only base tables
     db = SQLDatabase(
         engine=engine,
         sample_rows_in_table_info=2,
         include_tables=BASE_TABLES,
     )
 
+    # Groq LLM via OpenAI-compatible wrapper
     llm = ChatOpenAI(
-        model="grok-3-mini",
-        api_key=xai_api_key,
-        base_url="https://api.x.ai/v1",
+        model="llama-3.3-70b-versatile",   # Best Groq model for SQL tasks
+        api_key=groq_api_key,
+        base_url="https://api.groq.com/openai/v1",
         temperature=0,
         max_tokens=2048,
     )
@@ -144,35 +193,36 @@ def build_agent(engine):
     system_message = """You are an expert SQL analyst for a Brazilian e-commerce business.
 Database: Olist Brazilian E-Commerce (MySQL on TiDB Serverless)
 
-BASE TABLES (schema available via tools):
+BASE TABLES:
   • customers     — customer_id, customer_unique_id, city, state, zip_code
   • sellers       — seller_id, city, state, zip_code
   • products      — product_id, category, weight_g, length_cm, height_cm, width_cm, photos_qty
   • orders        — order_id, customer_id, order_status, order_purchase_timestamp,
-                    order_approved_at, order_delivered_customer_date, order_estimated_delivery_date
+                    order_approved_at, order_delivered_customer_date,
+                    order_estimated_delivery_date
   • order_items   — order_id, order_item_id, product_id, seller_id, price, freight_value
   • order_reviews — review_id, order_id, review_score (1-5), review_comment_message
   • payments      — order_id, payment_type, payment_installments, payment_value
 
-VIEWS (query these directly by name — they exist in the DB):
+VIEWS (these exist in the DB — query them directly by name):
   • vw_sales_by_category
       Columns: category, total_orders, total_items_sold, total_revenue,
                avg_item_price, total_freight, avg_review_score, unique_sellers
-      Use for: any question about revenue, sales, or reviews BY CATEGORY
+      → Use for ANY question about revenue, sales, or reviews BY CATEGORY
 
   • vw_customer_order_history
       Columns: customer_unique_id, order_id, order_status, order_purchase_timestamp,
                order_delivered_customer_date, product_category, price, freight_value,
                payment_type, payment_value, review_score
-      Use for: customer history lookups
+      → Use for customer history lookups
 
 RULES:
 1. Write syntactically correct MySQL SQL only.
-2. For category-level questions use: SELECT * FROM vw_sales_by_category ...
-3. For customer history use: SELECT * FROM vw_customer_order_history WHERE customer_unique_id = '...'
-4. For other questions query the base tables directly.
-5. Always LIMIT 200 unless the user asks for more.
-6. After retrieving data give a clear concise business interpretation.
+2. For category questions use: SELECT ... FROM vw_sales_by_category ...
+3. For customer history use: SELECT ... FROM vw_customer_order_history WHERE customer_unique_id = '...'
+4. For all other questions query the base tables with JOINs.
+5. Always add LIMIT 200 unless the user explicitly asks for more.
+6. After getting results give a clear concise business interpretation in plain English.
 7. Never expose credentials or connection strings.
 """
 
@@ -189,10 +239,11 @@ RULES:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  HELPERS
+#  UTILITY HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_sql_safe(engine, query: str):
+    """Execute a SELECT and return a DataFrame, or None on error."""
     try:
         with engine.connect() as conn:
             result = conn.execute(text(query))
@@ -202,6 +253,7 @@ def run_sql_safe(engine, query: str):
 
 
 def extract_last_select(steps: list):
+    """Pull the last SELECT query from agent intermediate steps."""
     last = None
     for step in steps:
         try:
@@ -217,31 +269,44 @@ def extract_last_select(steps: list):
 
 
 def try_auto_chart(df: pd.DataFrame):
+    """Heuristically pick the best Plotly chart for a result DataFrame."""
     if df is None or df.empty or len(df) < 2:
         return None
     num  = df.select_dtypes(include="number").columns.tolist()
     cat  = df.select_dtypes(exclude="number").columns.tolist()
     date = [c for c in df.columns
             if any(k in c.lower() for k in ["date", "timestamp", "month", "year"])]
+
+    # Time-series line chart
     if date and num:
         try:
             df[date[0]] = pd.to_datetime(df[date[0]])
-            return px.line(df.sort_values(date[0]), x=date[0], y=num[0],
-                           template="plotly_dark",
-                           color_discrete_sequence=["#f59e0b"],
-                           title=f"{num[0]} over time")
+            return px.line(
+                df.sort_values(date[0]), x=date[0], y=num[0],
+                template="plotly_dark",
+                color_discrete_sequence=["#f59e0b"],
+                title=f"{num[0]} over time",
+            )
         except Exception:
             pass
+
+    # Bar chart (categorical, ≤ 30 rows)
     if cat and num and len(df) <= 30:
-        return px.bar(df, x=cat[0], y=num[0],
-                      template="plotly_dark",
-                      color_discrete_sequence=["#f59e0b"],
-                      title=f"{num[0]} by {cat[0]}")
+        return px.bar(
+            df, x=cat[0], y=num[0],
+            template="plotly_dark",
+            color_discrete_sequence=["#f59e0b"],
+            title=f"{num[0]} by {cat[0]}",
+        )
+
+    # Scatter (two numeric columns)
     if len(num) >= 2 and len(df) <= 500:
-        return px.scatter(df, x=num[0], y=num[1],
-                          template="plotly_dark",
-                          color_discrete_sequence=["#f59e0b"],
-                          title=f"{num[0]} vs {num[1]}")
+        return px.scatter(
+            df, x=num[0], y=num[1],
+            template="plotly_dark",
+            color_discrete_sequence=["#f59e0b"],
+            title=f"{num[0]} vs {num[1]}",
+        )
     return None
 
 
@@ -264,25 +329,26 @@ SAMPLES = [
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CONNECTION STATUS
+#  CONNECTION STATUS  (runs on every page load)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-engine    = None
-db_error  = None
-obj_count = 0
+engine      = None
+db_error    = None
+obj_count   = 0
 actual_tbls = []
 
 try:
     engine = get_engine()
     with engine.connect() as conn:
         obj_count   = conn.execute(
-            text("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE()")
+            text("SELECT COUNT(*) FROM information_schema.TABLES "
+                 "WHERE TABLE_SCHEMA = DATABASE()")
         ).scalar()
         actual_tbls = [r[0] for r in conn.execute(text("SHOW TABLES")).fetchall()]
 except Exception as e:
     db_error = str(e)
 
-xai_ok      = bool(get_secret("XAI_API_KEY"))
+groq_ok     = bool(get_secret("GROQ_API_KEY"))
 found_core  = len([t for t in actual_tbls if t in set(BASE_TABLES)])
 found_views = len([t for t in actual_tbls if t in
                    {"vw_sales_by_category", "vw_customer_order_history"}])
@@ -294,20 +360,24 @@ found_views = len([t for t in actual_tbls if t in
 
 with st.sidebar:
     st.markdown('<div class="sb-logo">⚡ SQL Brain</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sb-tagline">Natural Language → SQL → Insight</div>',
-                unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sb-tagline">Natural Language → SQL → Insight</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
+
     st.markdown(
         f'<div class="sb-meta">'
         f'<b>Dataset</b> Olist Brazilian E-Commerce<br>'
         f'<b>Database</b> TiDB Serverless · MySQL 8<br>'
-        f'<b>LLM</b> Grok-3-mini · xAI<br>'
+        f'<b>LLM</b> Llama-3.3-70b · Groq<br>'
         f'<b>Objects</b> {obj_count} in DB '
         f'({found_core} tables + {found_views} views)'
         f'</div>',
         unsafe_allow_html=True,
     )
     st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
+
     st.markdown(
         '<p style="font-size:0.72rem;color:#64748b;font-weight:600;'
         'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">'
@@ -317,17 +387,20 @@ with st.sidebar:
     for q in SAMPLES:
         if st.button(q, key=f"sq_{q[:28]}"):
             st.session_state.pending_question = q
+
     st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
     show_sql   = st.toggle("Show generated SQL",  value=True)
     show_table = st.toggle("Show result table",    value=True)
     show_chart = st.toggle("Auto-render chart",    value=True)
     st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
+
     if st.button("🗑️ Clear conversation"):
         st.session_state.messages = []
         st.rerun()
+
     st.markdown(
         '<p style="font-size:0.68rem;color:#374151;margin-top:1.5rem;text-align:center">'
-        'LangChain · Streamlit · TiDB · xAI Grok</p>',
+        'LangChain · Streamlit · TiDB · Groq</p>',
         unsafe_allow_html=True,
     )
 
@@ -339,31 +412,46 @@ with st.sidebar:
 st.markdown(
     '<div class="hero-wrap">'
     '<div class="hero-title">SQL<span>/</span>Brain</div>'
-    '<div class="hero-sub">Natural Language → SQL → Business Insight · Olist E-Commerce</div>'
+    '<div class="hero-sub">'
+    'Natural Language → SQL → Business Insight · Olist E-Commerce'
+    '</div>'
     '</div>',
     unsafe_allow_html=True,
 )
 
+# Status chips
 db_chip = (
-    f'<span class="chip warn">❌ DB Error</span>' if db_error
+    '<span class="chip warn">❌ DB Error</span>' if db_error
     else f'<span class="chip ok">✅ Connected · {obj_count} objects</span>'
 )
-xai_chip = (
-    '<span class="chip ok">✅ XAI key set</span>' if xai_ok
-    else '<span class="chip warn">❌ XAI key missing</span>'
+groq_chip = (
+    '<span class="chip ok">✅ Groq key set</span>' if groq_ok
+    else '<span class="chip warn">❌ GROQ_API_KEY missing</span>'
 )
-schema_chip = f'<span class="chip info">📋 {found_core} tables + {found_views} views</span>'
+schema_chip = (
+    f'<span class="chip info">'
+    f'📋 {found_core} tables + {found_views} views'
+    f'</span>'
+)
 
 st.markdown(
-    f'<div class="chip-row">{db_chip}{xai_chip}{schema_chip}</div>',
+    f'<div class="chip-row">{db_chip}{groq_chip}{schema_chip}</div>',
     unsafe_allow_html=True,
 )
 
+# Hard stops
 if db_error:
-    st.error(f"Database connection failed: {db_error}")
+    st.error(f"Database connection failed: `{db_error}`")
+    st.info("Check TIDB_* values in Streamlit Cloud → Settings → Secrets.")
     st.stop()
-if not xai_ok:
-    st.error("XAI_API_KEY missing. Add it in Streamlit Cloud → Settings → Secrets.")
+
+if not groq_ok:
+    st.error("GROQ_API_KEY is missing.")
+    st.info(
+        "1. Get a free key at **console.groq.com/keys**\n"
+        "2. Add `GROQ_API_KEY = \"gsk_...\"` in Streamlit Cloud → Settings → Secrets\n"
+        "3. Reboot the app"
+    )
     st.stop()
 
 
@@ -385,21 +473,25 @@ for msg in st.session_state.messages:
     if msg["role"] == "user":
         st.markdown(
             f'<div class="msg-wrap"><div class="msg-user">'
-            f'<div class="msg-label">You</div>{msg["content"]}'
+            f'<div class="msg-label">You</div>'
+            f'{msg["content"]}'
             f'</div></div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
             f'<div class="msg-wrap"><div class="msg-bot">'
-            f'<div class="msg-label">⚡ SQL Brain</div>{msg["content"]}'
+            f'<div class="msg-label">⚡ SQL Brain</div>'
+            f'{msg["content"]}'
             f'</div></div>',
             unsafe_allow_html=True,
         )
         if show_sql and msg.get("sql"):
             st.markdown(
-                f'<div class="sql-wrap"><div class="sql-header">⚡ Generated SQL</div>'
-                f'<pre class="sql-body">{msg["sql"]}</pre></div>',
+                f'<div class="sql-wrap">'
+                f'<div class="sql-header">⚡ Generated SQL</div>'
+                f'<pre class="sql-body">{msg["sql"]}</pre>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
         if show_table and msg.get("df") is not None:
@@ -413,6 +505,7 @@ for msg in st.session_state.messages:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 user_question = None
+
 if st.session_state.pending_question:
     user_question = st.session_state.pending_question
     st.session_state.pending_question = None
@@ -439,15 +532,20 @@ if user_question:
             chart     = try_auto_chart(df_result) if df_result is not None else None
 
             st.session_state.messages.append({
-                "role": "assistant", "content": answer,
-                "sql": sql_query, "df": df_result, "chart": chart,
+                "role":    "assistant",
+                "content": answer,
+                "sql":     sql_query,
+                "df":      df_result,
+                "chart":   chart,
             })
 
         except Exception as exc:
             st.session_state.messages.append({
-                "role": "assistant",
+                "role":    "assistant",
                 "content": f"⚠️ Error: `{type(exc).__name__}: {exc}`",
-                "sql": None, "df": None, "chart": None,
+                "sql":     None,
+                "df":      None,
+                "chart":   None,
             })
 
     st.rerun()
