@@ -277,16 +277,14 @@ def get_engine():
     )
 
 
-@st.cache_resource(show_spinner=False)
 def get_langchain_db(_engine):
     with _engine.connect() as conn:
         rows = conn.execute(text("SHOW TABLES")).fetchall()
         actual = [r[0] for r in rows]
-
     return SQLDatabase(
         engine=_engine,
         sample_rows_in_table_info=3,
-        include_tables=actual,   # pass the real list directly — no filtering
+        include_tables=actual,
     ), set(actual)
 
 # ═══════════════════════════════════════════════════════════════════════════════
