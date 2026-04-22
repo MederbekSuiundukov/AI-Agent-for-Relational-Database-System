@@ -1,7 +1,7 @@
 # 🧠 AI-Agent-for-Relational-Database-System
 
 > Natural language → SQL → Business insight  
-> Powered by **Grok (xAI)** · **LangChain** · **TiDB Serverless** · **Streamlit**
+> Powered by **Llama-3.3-70b · Groq** · **LangChain** · **TiDB Serverless** · **Streamlit**
 
 ---
 
@@ -100,7 +100,7 @@ customers ──< orders ──< order_items >── products
 
 | Layer | Technology |
 |---|---|
-| LLM | Grok-3-mini (xAI API) |
+| LLM | Llama-3.3-70b · Groq |
 | Agent framework | LangChain SQL Agent |
 | Database | TiDB Serverless (MySQL 8 compatible) |
 | DB driver | PyMySQL + SQLAlchemy |
