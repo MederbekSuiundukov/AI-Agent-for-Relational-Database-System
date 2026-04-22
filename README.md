@@ -1,4 +1,4 @@
-# 🧠 SQL Brain — AI Text-to-SQL Agent
+# 🧠 AI-Agent-for-Relational-Database-System
 
 > Natural language → SQL → Business insight  
 > Powered by **Grok (xAI)** · **LangChain** · **TiDB Serverless** · **Streamlit**
