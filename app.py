@@ -25,7 +25,7 @@ from langchain_openai import ChatOpenAI
 #  PAGE CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
-    page_title="SQL Brain — AI Database Agent",
+    page_title="AI-Agent-for-Relational-Database-System",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
