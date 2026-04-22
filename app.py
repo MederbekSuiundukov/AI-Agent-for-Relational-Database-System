@@ -1,33 +1,14 @@
 """
 app.py — Text-to-SQL AI Agent
-==============================
-Streamlit UI that wraps a LangChain SQL Agent powered by the Grok (xAI) LLM,
-connected to a TiDB Serverless MySQL-compatible database.
-
-Run locally:
-    streamlit run app.py
-
-Deploy on Streamlit Community Cloud:
-    App → Settings → Secrets:
-        TIDB_HOST     = "gateway01.eu-central-1.prod.aws.tidbcloud.com"
-        TIDB_PORT     = "4000"
-        TIDB_USER     = "your_prefix.root"
-        TIDB_PASSWORD = "your_password"
-        TIDB_DB       = "ecommerce"
-        XAI_API_KEY   = "xai-..."
+Streamlit UI · LangChain SQL Agent · Grok (xAI) · TiDB Serverless
 """
 
-# ── Standard library ──────────────────────────────────────────────────────────
 import os
 import re
-
-# ── Third-party ───────────────────────────────────────────────────────────────
 import pandas as pd
 import streamlit as st
 import plotly.express as px
 from sqlalchemy import create_engine, text
-
-# ── LangChain ─────────────────────────────────────────────────────────────────
 from langchain_community.utilities import SQLDatabase
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain_community.agent_toolkits.sql.toolkit import SQLDatabaseToolkit
@@ -38,148 +19,234 @@ from langchain_openai import ChatOpenAI
 # ═══════════════════════════════════════════════════════════════════════════════
 st.set_page_config(
     page_title="SQL Brain — AI Database Agent",
-    page_icon="🧠",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CUSTOM CSS
+#  CSS  — new amber + slate dark theme
 # ═══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Inter:wght@300;400;500;600&display=swap');
 
 :root {
-    --bg:      #0d0f14;
-    --surface: #161a24;
-    --border:  #252c3d;
-    --accent:  #6ee7b7;
-    --accent2: #7dd3fc;
-    --text:    #e2e8f0;
-    --muted:   #64748b;
-    --mono:    'Space Mono', monospace;
-    --sans:    'DM Sans', sans-serif;
+    --bg:        #0a0a0f;
+    --surface:   #12121a;
+    --surface2:  #1a1a26;
+    --border:    #2a2a3d;
+    --accent:    #f59e0b;
+    --accent2:   #fbbf24;
+    --accentdim: #78350f;
+    --blue:      #60a5fa;
+    --text:      #f1f5f9;
+    --muted:     #64748b;
+    --success:   #34d399;
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'Inter', sans-serif;
 }
 
-html, body, [class*="css"] {
+* { box-sizing: border-box; }
+
+html, body, [class*="css"], .stApp {
     background-color: var(--bg) !important;
     color: var(--text) !important;
-    font-family: var(--sans);
+    font-family: var(--sans) !important;
 }
 
+/* ── Sidebar ── */
+section[data-testid="stSidebar"] > div {
+    background: var(--surface) !important;
+    border-right: 1px solid var(--border) !important;
+    padding-top: 1.5rem;
+}
+section[data-testid="stSidebar"] * {
+    color: var(--text) !important;
+}
+
+/* ── Hero ── */
+.hero-wrap {
+    padding: 2rem 0 1.2rem 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+}
 .hero-title {
     font-family: var(--mono);
-    font-size: 2rem;
-    font-weight: 700;
+    font-size: 2.6rem;
+    font-weight: 600;
     color: var(--accent);
-    letter-spacing: -0.03em;
-    line-height: 1.1;
-    margin-bottom: 0.15rem;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    margin: 0;
 }
+.hero-title span { color: var(--text); opacity: 0.25; }
 .hero-sub {
     font-family: var(--sans);
-    font-size: 0.88rem;
+    font-size: 0.8rem;
     color: var(--muted);
-    margin-bottom: 1.5rem;
-    letter-spacing: 0.04em;
+    margin-top: 0.4rem;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
+    font-weight: 500;
 }
 
-.msg-user, .msg-bot {
-    padding: 0.85rem 1.1rem;
-    border-radius: 12px;
-    margin-bottom: 0.75rem;
-    font-size: 0.95rem;
-    line-height: 1.6;
-    max-width: 92%;
-}
-.msg-user {
-    background: var(--surface);
+/* ── Status chips ── */
+.chip-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0 1.5rem 0; }
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: var(--surface2);
     border: 1px solid var(--border);
-    margin-left: auto;
-    border-bottom-right-radius: 2px;
+    border-radius: 6px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    color: var(--muted);
+    font-weight: 500;
+}
+.chip.ok   { border-color: var(--success); color: var(--success); }
+.chip.warn { border-color: #f87171;        color: #f87171; }
+.chip.info { border-color: var(--accent);  color: var(--accent); }
+
+/* ── Chat messages ── */
+.msg-wrap { margin-bottom: 1rem; }
+.msg-user {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px 12px 4px 12px;
+    padding: 0.9rem 1.1rem;
+    margin-left: 15%;
+    font-size: 0.93rem;
+    line-height: 1.65;
 }
 .msg-bot {
-    background: #0f2a22;
-    border: 1px solid #1f4535;
-    border-bottom-left-radius: 2px;
+    background: #130e05;
+    border: 1px solid var(--accentdim);
+    border-radius: 12px 12px 12px 4px;
+    padding: 0.9rem 1.1rem;
+    margin-right: 5%;
+    font-size: 0.93rem;
+    line-height: 1.65;
 }
 .msg-label {
     font-family: var(--mono);
-    font-size: 0.68rem;
+    font-size: 0.62rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-bottom: 0.35rem;
-    opacity: 0.55;
+    letter-spacing: 0.12em;
+    margin-bottom: 0.4rem;
+    opacity: 0.45;
 }
+.msg-user .msg-label { text-align: right; }
 
-.sql-block {
-    background: #0a0c10;
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
+/* ── SQL block ── */
+.sql-wrap {
+    margin: 0.6rem 0 1rem 0;
     border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+.sql-header {
+    background: var(--surface2);
+    padding: 0.3rem 0.8rem;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+}
+.sql-body {
+    background: #060608;
     padding: 0.8rem 1rem;
     font-family: var(--mono);
-    font-size: 0.8rem;
-    color: var(--accent2);
-    overflow-x: auto;
-    margin: 0.5rem 0 0.9rem 0;
-    white-space: pre-wrap;
-}
-
-.chip-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0 1rem 0; }
-.chip {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.25rem 0.75rem;
     font-size: 0.78rem;
-    font-family: var(--mono);
-    color: var(--accent);
+    color: var(--blue);
+    white-space: pre-wrap;
+    overflow-x: auto;
+    margin: 0;
 }
 
-section[data-testid="stSidebar"] {
-    background: var(--surface) !important;
-    border-right: 1px solid var(--border);
-}
-
-div[data-testid="stChatInput"] textarea {
-    background: var(--surface) !important;
-    border: 1px solid var(--border) !important;
-    color: var(--text) !important;
-    font-family: var(--sans) !important;
-    font-size: 0.95rem !important;
-    border-radius: 10px !important;
-}
-
+/* ── Sidebar buttons ── */
 .stButton > button {
     background: transparent !important;
     border: 1px solid var(--border) !important;
     color: var(--muted) !important;
-    font-family: var(--mono) !important;
+    font-family: var(--sans) !important;
     font-size: 0.78rem !important;
-    border-radius: 6px !important;
-    padding: 0.3rem 0.8rem !important;
-    transition: all 0.15s ease;
+    border-radius: 8px !important;
+    padding: 0.45rem 0.75rem !important;
+    text-align: left !important;
+    width: 100% !important;
+    transition: all 0.15s ease !important;
+    line-height: 1.4 !important;
 }
 .stButton > button:hover {
     border-color: var(--accent) !important;
     color: var(--accent) !important;
+    background: #130e05 !important;
 }
 
+/* ── Chat input ── */
+div[data-testid="stChatInput"] {
+    background: var(--surface) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+}
+div[data-testid="stChatInput"] textarea {
+    background: transparent !important;
+    color: var(--text) !important;
+    font-family: var(--sans) !important;
+    font-size: 0.93rem !important;
+}
+div[data-testid="stChatInput"]:focus-within {
+    border-color: var(--accent) !important;
+}
+
+/* ── Toggle ── */
+.stToggle label { color: var(--muted) !important; font-size: 0.82rem !important; }
+
+/* ── Spinner ── */
 .stSpinner > div { border-top-color: var(--accent) !important; }
-.stDataFrame { border-radius: 8px; overflow: hidden; }
+
+/* ── Divider ── */
+.sdiv {
+    height: 1px;
+    background: var(--border);
+    margin: 0.9rem 0;
+}
+
+/* ── Sidebar logo ── */
+.sb-logo {
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 0.15rem;
+}
+.sb-tagline {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+}
+.sb-meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.9;
+}
+.sb-meta b { color: var(--text); font-weight: 500; }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SECRETS / ENV helper
+#  SECRETS helper
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_secret(key: str, default: str = "") -> str:
-    """Read from Streamlit secrets first, then fall back to env vars."""
     try:
         return st.secrets[key]
     except (KeyError, FileNotFoundError):
@@ -187,7 +254,7 @@ def get_secret(key: str, default: str = "") -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  DATABASE CONNECTION
+#  DATABASE  — engine + dynamic table discovery
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @st.cache_resource(show_spinner=False)
@@ -202,35 +269,42 @@ def get_engine():
         f"mysql+pymysql://{user}:{password}"
         f"@{host}:{port}/{db}?charset=utf8mb4"
     )
-    engine = create_engine(
+    return create_engine(
         url,
         connect_args={"ssl": {"ssl_mode": "VERIFY_IDENTITY"}},
         pool_recycle=3600,
         pool_pre_ping=True,
     )
-    return engine
 
 
 @st.cache_resource(show_spinner=False)
 def get_langchain_db(_engine):
-    # Dynamically discover what tables actually exist
+    """
+    Dynamically discover all tables/views in the connected DB
+    and only pass ones that actually exist to LangChain.
+    This prevents the 'include_tables not found' ValueError.
+    """
     with _engine.connect() as conn:
         rows = conn.execute(text("SHOW TABLES")).fetchall()
-        actual_tables = [r[0] for r in rows]
+        actual = {r[0] for r in rows}
 
-    # Only include tables that exist in this database
     desired = [
         "customers", "sellers", "products", "orders",
         "order_items", "order_reviews", "payments",
         "vw_sales_by_category", "vw_customer_order_history",
     ]
-    available = [t for t in desired if t in actual_tables]
+    available = [t for t in desired if t in actual]
+
+    if not available:
+        # Fallback: expose everything in the DB
+        available = list(actual) if actual else None
 
     return SQLDatabase(
         engine=_engine,
         sample_rows_in_table_info=3,
-        include_tables=available if available else None,
-    )
+        include_tables=available,
+    ), actual
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  LLM + AGENT
@@ -238,10 +312,9 @@ def get_langchain_db(_engine):
 
 @st.cache_resource(show_spinner=False)
 def get_agent(_db):
-    """Build a LangChain SQL agent using the Grok (xAI) LLM."""
     xai_api_key = get_secret("XAI_API_KEY", "")
     if not xai_api_key:
-        st.error("❌ XAI_API_KEY not set. Add it to Streamlit secrets.")
+        st.error("❌ XAI_API_KEY not set.")
         st.stop()
 
     llm = ChatOpenAI(
@@ -254,36 +327,34 @@ def get_agent(_db):
 
     toolkit = SQLDatabaseToolkit(db=_db, llm=llm)
 
-    system_message = """You are an expert SQL analyst for an e-commerce business.
-The database is the Olist Brazilian E-Commerce dataset with these objects:
+    system_message = """You are an expert SQL analyst for a Brazilian e-commerce business.
+Database: Olist Brazilian E-Commerce (MySQL on TiDB Serverless)
 
 TABLES:
-  • customers        — buyer profiles: customer_id, customer_unique_id, city, state, zip_code
-  • sellers          — seller profiles: seller_id, city, state, zip_code
+  • customers        — customer_id, customer_unique_id, city, state, zip_code
+  • sellers          — seller_id, city, state, zip_code
   • products         — product_id, category, weight_g, length_cm, height_cm, width_cm, photos_qty
   • orders           — order_id, customer_id, order_status, order_purchase_timestamp, delivery dates
-  • order_items      — order_id, product_id, seller_id, price, freight_value, shipping_limit_date
-  • order_reviews    — review_id, order_id, review_score (1-5), review_comment_title, review_comment_message
+  • order_items      — order_id, order_item_id, product_id, seller_id, price, freight_value
+  • order_reviews    — review_id, order_id, review_score (1-5), review_comment_message
   • payments         — order_id, payment_type, payment_installments, payment_value
 
-VIEWS (pre-aggregated — prefer these for performance):
+VIEWS (use for aggregations — much faster):
   • vw_sales_by_category      — category, total_orders, total_items_sold, total_revenue,
                                 avg_item_price, total_freight, avg_review_score, unique_sellers
-  • vw_customer_order_history — customer_unique_id, order_id, order_status, order_purchase_timestamp,
-                                product_category, price, freight_value, payment_type,
-                                payment_value, review_score
+  • vw_customer_order_history — customer_unique_id, order_id, order_status,
+                                product_category, price, payment_type, review_score
 
 RULES:
-1. Always write syntactically correct MySQL SQL.
-2. Use vw_sales_by_category for category-level revenue or review questions.
-3. Use vw_customer_order_history for customer history lookups.
-4. Always add LIMIT 200 unless the user requests more.
-5. After retrieving data, give a clear, concise business interpretation.
-6. If a question is ambiguous, state your assumption before querying.
-7. Never expose passwords or connection strings in your response.
+1. Write syntactically correct MySQL SQL only.
+2. Prefer vw_sales_by_category for category revenue/review questions.
+3. Prefer vw_customer_order_history for customer history questions.
+4. Always LIMIT 200 unless user requests otherwise.
+5. After retrieving data, give a clear concise business interpretation.
+6. Never expose credentials or connection strings.
 """
 
-    agent = create_sql_agent(
+    return create_sql_agent(
         llm=llm,
         toolkit=toolkit,
         agent_type="openai-tools",
@@ -293,15 +364,13 @@ RULES:
         handle_parsing_errors=True,
         system_message=system_message,
     )
-    return agent
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  SQL EXTRACTION + SAFE EXECUTION
+#  HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_sql_safe(engine, query: str) -> pd.DataFrame | None:
-    """Execute a SELECT query and return a DataFrame, or None on error."""
+def run_sql_safe(engine, query: str):
     try:
         with engine.connect() as conn:
             result = conn.execute(text(query))
@@ -310,71 +379,50 @@ def run_sql_safe(engine, query: str) -> pd.DataFrame | None:
         return None
 
 
-def extract_last_select(intermediate_steps: list) -> str | None:
-    """
-    Walk agent intermediate steps and return the last SELECT query executed.
-    Handles both dict and string tool_input formats.
-    """
-    last_sql = None
-    for step in intermediate_steps:
+def extract_last_select(steps: list):
+    last = None
+    for step in steps:
         try:
             action, _ = step
-            tool_input = getattr(action, "tool_input", "")
-            if isinstance(tool_input, dict):
-                tool_input = tool_input.get("query", "")
-            if isinstance(tool_input, str) and tool_input.strip().upper().startswith("SELECT"):
-                last_sql = tool_input.strip()
+            ti = getattr(action, "tool_input", "")
+            if isinstance(ti, dict):
+                ti = ti.get("query", "")
+            if isinstance(ti, str) and ti.strip().upper().startswith("SELECT"):
+                last = ti.strip()
         except Exception:
             continue
-    return last_sql
+    return last
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  AUTO CHART
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def try_auto_chart(df: pd.DataFrame):
-    """Heuristically render a Plotly chart from a result DataFrame."""
     if df is None or df.empty or len(df) < 2:
         return None
+    num  = df.select_dtypes(include="number").columns.tolist()
+    cat  = df.select_dtypes(exclude="number").columns.tolist()
+    date = [c for c in df.columns
+            if any(k in c.lower() for k in ["date", "timestamp", "month", "year"])]
 
-    num_cols  = df.select_dtypes(include="number").columns.tolist()
-    cat_cols  = df.select_dtypes(exclude="number").columns.tolist()
-    date_cols = [c for c in df.columns
-                 if any(kw in c.lower() for kw in ["date", "timestamp", "month", "year"])]
-
-    # Time-series line chart
-    if date_cols and num_cols:
-        x_col, y_col = date_cols[0], num_cols[0]
+    if date and num:
         try:
-            df[x_col] = pd.to_datetime(df[x_col])
-            return px.line(
-                df.sort_values(x_col), x=x_col, y=y_col,
-                template="plotly_dark",
-                color_discrete_sequence=["#6ee7b7"],
-                title=f"{y_col} over time",
-            )
+            df[date[0]] = pd.to_datetime(df[date[0]])
+            return px.line(df.sort_values(date[0]), x=date[0], y=num[0],
+                           template="plotly_dark",
+                           color_discrete_sequence=["#f59e0b"],
+                           title=f"{num[0]} over time")
         except Exception:
             pass
 
-    # Bar chart for categorical + numeric (≤ 30 rows)
-    if cat_cols and num_cols and len(df) <= 30:
-        return px.bar(
-            df, x=cat_cols[0], y=num_cols[0],
-            template="plotly_dark",
-            color_discrete_sequence=["#6ee7b7"],
-            title=f"{num_cols[0]} by {cat_cols[0]}",
-        )
+    if cat and num and len(df) <= 30:
+        return px.bar(df, x=cat[0], y=num[0],
+                      template="plotly_dark",
+                      color_discrete_sequence=["#f59e0b"],
+                      title=f"{num[0]} by {cat[0]}")
 
-    # Scatter for two numeric columns
-    if len(num_cols) >= 2 and len(df) <= 500:
-        return px.scatter(
-            df, x=num_cols[0], y=num_cols[1],
-            template="plotly_dark",
-            color_discrete_sequence=["#6ee7b7"],
-            title=f"{num_cols[0]} vs {num_cols[1]}",
-        )
-
+    if len(num) >= 2 and len(df) <= 500:
+        return px.scatter(df, x=num[0], y=num[1],
+                          template="plotly_dark",
+                          color_discrete_sequence=["#f59e0b"],
+                          title=f"{num[0]} vs {num[1]}")
     return None
 
 
@@ -382,7 +430,7 @@ def try_auto_chart(df: pd.DataFrame):
 #  SAMPLE QUESTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-SAMPLE_QUESTIONS = [
+SAMPLES = [
     "What are the top 5 product categories by total revenue?",
     "Show me monthly order count trends for 2018.",
     "Which state has the most customers?",
@@ -390,10 +438,35 @@ SAMPLE_QUESTIONS = [
     "List the top 10 sellers by number of items sold.",
     "What percentage of orders were delivered on time?",
     "What is the most common payment method?",
-    "Show me average freight cost by seller state.",
+    "Show average freight cost by seller state.",
     "How many orders were placed each month in 2017?",
     "What is the average order value by payment type?",
 ]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CONNECTION  (do this early so sidebar shows live status)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+engine      = None
+actual_tbls = set()
+db_error    = None
+obj_count   = 0
+
+try:
+    engine = get_engine()
+    with engine.connect() as conn:
+        # Count actual objects in the current database
+        obj_count = conn.execute(
+            text("SELECT COUNT(*) FROM information_schema.TABLES "
+                 "WHERE TABLE_SCHEMA = DATABASE()")
+        ).scalar()
+        actual_rows = conn.execute(text("SHOW TABLES")).fetchall()
+        actual_tbls = {r[0] for r in actual_rows}
+except Exception as e:
+    db_error = str(e)
+
+xai_ok = bool(get_secret("XAI_API_KEY"))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -401,80 +474,114 @@ SAMPLE_QUESTIONS = [
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with st.sidebar:
-    st.markdown("### 🧠 SQL Brain")
-    st.markdown("<hr style='border-color:#252c3d;margin:0.5rem 0'>", unsafe_allow_html=True)
+    st.markdown('<div class="sb-logo">⚡ SQL Brain</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sb-tagline">Natural Language → SQL → Insight</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
 
-    st.markdown("**Dataset:** Olist Brazilian E-Commerce")
-    st.markdown("**DB:** TiDB Serverless (MySQL 8)")
-    st.markdown("**LLM:** Grok-3-mini · xAI")
-    st.markdown("**Schema:** 7 tables + 2 views")
-    st.markdown("<hr style='border-color:#252c3d;margin:0.75rem 0'>", unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="sb-meta">'
+        f'<b>Dataset</b> Olist Brazilian E-Commerce<br>'
+        f'<b>Database</b> TiDB Serverless · MySQL 8<br>'
+        f'<b>LLM</b> Grok-3-mini · xAI<br>'
+        f'<b>Objects</b> {obj_count} in DB '
+        f'({len(actual_tbls & {"customers","sellers","products","orders","order_items","order_reviews","payments"})} tables '
+        f'+ {len(actual_tbls & {"vw_sales_by_category","vw_customer_order_history"})} views)'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
 
-    st.markdown("##### 💡 Quick questions")
-    for q in SAMPLE_QUESTIONS:
-        if st.button(q, key=f"sq_{q[:25]}"):
+    st.markdown(
+        '<p style="font-size:0.72rem;color:#64748b;font-weight:600;'
+        'text-transform:uppercase;letter-spacing:0.1em;margin-bottom:0.5rem">'
+        '💡 Quick questions</p>',
+        unsafe_allow_html=True,
+    )
+    for q in SAMPLES:
+        if st.button(q, key=f"sq_{q[:28]}"):
             st.session_state.pending_question = q
 
-    st.markdown("<hr style='border-color:#252c3d;margin:0.75rem 0'>", unsafe_allow_html=True)
-
+    st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
     show_sql   = st.toggle("Show generated SQL",  value=True)
     show_table = st.toggle("Show result table",    value=True)
     show_chart = st.toggle("Auto-render chart",    value=True)
 
-    st.markdown("<hr style='border-color:#252c3d;margin:0.75rem 0'>", unsafe_allow_html=True)
+    st.markdown('<div class="sdiv"></div>', unsafe_allow_html=True)
     if st.button("🗑️ Clear conversation"):
         st.session_state.messages = []
         st.rerun()
 
     st.markdown(
-        "<p style='font-size:0.72rem;color:#475569;margin-top:1rem'>"
-        "Built with LangChain · Streamlit · TiDB · xAI"
-        "</p>",
+        '<p style="font-size:0.68rem;color:#374151;margin-top:1.5rem;text-align:center">'
+        'LangChain · Streamlit · TiDB · xAI Grok'
+        '</p>',
         unsafe_allow_html=True,
     )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  MAIN HEADER + STATUS
+#  MAIN HEADER
 # ═══════════════════════════════════════════════════════════════════════════════
 
-st.markdown('<div class="hero-title">SQL Brain</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="hero-sub">'
-    'Natural Language → SQL → Insight · Olist E-Commerce Dataset'
+    '<div class="hero-wrap">'
+    '<div class="hero-title">SQL<span>/</span>Brain</div>'
+    '<div class="hero-sub">Natural Language → SQL → Business Insight · Olist E-Commerce</div>'
     '</div>',
     unsafe_allow_html=True,
 )
 
-# Connection + key status chips
-try:
-    engine = get_engine()
-    with engine.connect() as conn:
-        tbl_count = conn.execute(
-            text("SELECT COUNT(*) FROM information_schema.TABLES "
-                 "WHERE TABLE_SCHEMA = DATABASE()")
-        ).scalar()
-    db_status = f"✅ Connected · {tbl_count} objects"
-except Exception as e:
-    db_status = f"❌ DB error: {e}"
-    engine = None
+# Status chips
+if db_error:
+    db_chip = f'<span class="chip warn">❌ DB Error</span>'
+else:
+    db_chip = f'<span class="chip ok">✅ Connected · {obj_count} objects</span>'
 
-xai_ok = bool(get_secret("XAI_API_KEY"))
+xai_chip = (
+    '<span class="chip ok">✅ XAI key set</span>' if xai_ok
+    else '<span class="chip warn">❌ XAI key missing</span>'
+)
+
+# Show which tables were found
+found_tables = actual_tbls & {
+    "customers","sellers","products","orders",
+    "order_items","order_reviews","payments",
+    "vw_sales_by_category","vw_customer_order_history"
+}
+tbl_chip = (
+    f'<span class="chip info">📋 {len(found_tables)}/9 schema objects found</span>'
+    if engine else ""
+)
 
 st.markdown(
-    f'<div class="chip-row">'
-    f'<span class="chip">{db_status}</span>'
-    f'<span class="chip">{"✅ XAI key set" if xai_ok else "❌ XAI key missing"}</span>'
-    f'</div>',
+    f'<div class="chip-row">{db_chip}{xai_chip}{tbl_chip}</div>',
     unsafe_allow_html=True,
 )
 
-if engine is None:
-    st.warning("Database not connected. Check your Streamlit secrets.")
+# ── Diagnostic warning if tables are missing ─────────────────────────────────
+if engine and len(found_tables) < 7:
+    missing = {
+        "customers","sellers","products","orders",
+        "order_items","order_reviews","payments"
+    } - actual_tbls
+    st.warning(
+        f"⚠️ **{len(missing)} base tables missing** from the connected database: "
+        f"`{'`, `'.join(sorted(missing))}`\n\n"
+        f"**Connected DB has these objects:** `{'`, `'.join(sorted(actual_tbls)) or 'none'}`\n\n"
+        f"Check that `TIDB_DB = ecommerce` in **Streamlit Cloud → Settings → Secrets** "
+        f"and click **Reboot app** after saving."
+    )
+
+if db_error:
+    st.error(f"Database connection failed: {db_error}")
+    st.info("Go to Streamlit Cloud → Settings → Secrets and verify all TIDB_* values.")
     st.stop()
 
 if not xai_ok:
-    st.warning("XAI_API_KEY missing. Add it in Streamlit Cloud → Settings → Secrets.")
+    st.error("XAI_API_KEY missing. Add it in Streamlit Cloud → Settings → Secrets.")
     st.stop()
 
 
@@ -484,7 +591,6 @@ if not xai_ok:
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
-
 if "pending_question" not in st.session_state:
     st.session_state.pending_question = None
 
@@ -496,27 +602,32 @@ if "pending_question" not in st.session_state:
 for msg in st.session_state.messages:
     if msg["role"] == "user":
         st.markdown(
+            f'<div class="msg-wrap">'
             f'<div class="msg-user">'
             f'<div class="msg-label">You</div>'
             f'{msg["content"]}'
-            f'</div>',
+            f'</div></div>',
             unsafe_allow_html=True,
         )
     else:
         st.markdown(
+            f'<div class="msg-wrap">'
             f'<div class="msg-bot">'
-            f'<div class="msg-label">SQL Brain</div>'
+            f'<div class="msg-label">⚡ SQL Brain</div>'
             f'{msg["content"]}'
-            f'</div>',
+            f'</div></div>',
             unsafe_allow_html=True,
         )
         if show_sql and msg.get("sql"):
             st.markdown(
-                f'<div class="sql-block">{msg["sql"]}</div>',
+                f'<div class="sql-wrap">'
+                f'<div class="sql-header">⚡ Generated SQL</div>'
+                f'<pre class="sql-body">{msg["sql"]}</pre>'
+                f'</div>',
                 unsafe_allow_html=True,
             )
         if show_table and msg.get("df") is not None:
-            st.dataframe(msg["df"], use_container_width=True, height=260)
+            st.dataframe(msg["df"], use_container_width=True, height=240)
         if show_chart and msg.get("chart") is not None:
             st.plotly_chart(msg["chart"], use_container_width=True)
 
@@ -526,13 +637,10 @@ for msg in st.session_state.messages:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 user_question = None
-
-# Sidebar quick-question injection
 if st.session_state.pending_question:
     user_question = st.session_state.pending_question
     st.session_state.pending_question = None
 
-# Bottom chat input bar
 chat_input = st.chat_input("Ask a business question about the e-commerce data …")
 if chat_input:
     user_question = chat_input
@@ -545,38 +653,27 @@ if chat_input:
 if user_question:
     st.session_state.messages.append({"role": "user", "content": user_question})
 
-    with st.spinner("🤔 Thinking …"):
+    with st.spinner("⚡ Thinking …"):
         try:
-            lc_db = get_langchain_db(engine)
-            agent = get_agent(lc_db)
+            lc_db, _ = get_langchain_db(engine)
+            agent    = get_agent(lc_db)
 
-            response = agent.invoke({"input": user_question})
-            answer   = response.get("output", str(response))
-
-            # Extract last SQL query executed by agent
+            response  = agent.invoke({"input": user_question})
+            answer    = response.get("output", str(response))
             sql_query = extract_last_select(response.get("intermediate_steps", []))
-
-            # Re-run SQL to get a clean DataFrame for display
             df_result = run_sql_safe(engine, sql_query) if sql_query else None
-
-            # Auto-generate chart if possible
-            chart = try_auto_chart(df_result) if df_result is not None else None
+            chart     = try_auto_chart(df_result) if df_result is not None else None
 
             st.session_state.messages.append({
-                "role":    "assistant",
-                "content": answer,
-                "sql":     sql_query,
-                "df":      df_result,
-                "chart":   chart,
+                "role": "assistant", "content": answer,
+                "sql": sql_query, "df": df_result, "chart": chart,
             })
 
         except Exception as exc:
             st.session_state.messages.append({
-                "role":    "assistant",
+                "role": "assistant",
                 "content": f"⚠️ Agent error: `{type(exc).__name__}: {exc}`",
-                "sql":     None,
-                "df":      None,
-                "chart":   None,
+                "sql": None, "df": None, "chart": None,
             })
 
     st.rerun()
