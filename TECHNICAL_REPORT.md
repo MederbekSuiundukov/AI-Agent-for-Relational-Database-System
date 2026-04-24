@@ -7,7 +7,9 @@
 **Building an End-to-End Text-to-SQL AI Agent: Natural Language Querying over the Olist Brazilian E-Commerce Dataset using TiDB, LangChain, and Grok**
 
 *Authors: Suiundukov Mederbek  
+
 *Course: Industrial Internship 
+
 *Institution: Ala-Too  
 
 ---
